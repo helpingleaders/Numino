@@ -2,7 +2,10 @@
 <html>
 <head>
     <title>Numinoes</title>
-    <link rel="stylesheet" href="style.css"> </head>
+    <style>
+        /* ... (CSS styles from previous responses) */
+    </style>
+</head>
 <body>
     <div id="game-area">
         <h1>Numinoes</h1>
@@ -12,16 +15,205 @@
             <label><input type="checkbox" id="multiply-operator" checked> x </label>
             <label><input type="checkbox" id="divide-operator" checked> ÷ </label>
         </div>
-
         <div id="game-board"></div>
         <div id="player-hand"></div>
-
         <div id="score">Score: 0</div>
         <div id="error-message"></div>
-
         <button id="new-game-button">New Game</button>
     </div>
+    <script>
+        // Game Variables
+        const gridSize = 4;
+        let gameBoard = [];
+        let playerHand = [];
+        let score = 0;
+        let operators = [];
+        let wildcardRatio = 0.1;
+        let numTilesInHand = 5;
+        let selectedTile = null;
+        let gameOver = false;
 
-    <script src="script.js"></script> 
-</body>
-</html>
+        // DOM Elements (using standard JavaScript)
+        const gameBoardDiv = document.getElementById("game-board");
+        const playerHandDiv = document.getElementById("player-hand");
+        const scoreDisplay = document.getElementById("score");
+        const operatorSelect = document.getElementById("operator-select");
+        const newGameButton = document.getElementById("new-game-button");
+        const errorMessage = document.getElementById("error-message");
+
+        // Tile Class
+        class Tile {
+            constructor(value, type) {
+                this.value = value;
+                this.type = type; // 'number', 'operator', or 'wildcard'
+                this.isWildcard = type === 'wildcard';
+            }
+        }
+
+        // UI Creation Functions
+        function createGameBoardUI() {
+            for (let i = 0; i < gridSize; i++) {
+                let row = [];
+                let rowDiv = document.createElement('div');
+                rowDiv.classList.add('row');
+                for (let j = 0; j < gridSize; j++) {
+                    row.push(null);
+                    let cellDiv = document.createElement('div');
+                    cellDiv.classList.add('cell');
+                    cellDiv.id = `cell-<span class="math-inline">\{i\}\-</span>{j}`;
+                    cellDiv.addEventListener('click', () => handleCellClick(i, j));
+                    rowDiv.appendChild(cellDiv);
+                }
+                gameBoard.push(row);
+                gameBoardDiv.appendChild(rowDiv);
+            }
+        }
+
+        function createTileUI(tile) {
+            let tileDiv = document.createElement('div');
+            tileDiv.classList.add('tile', tile.type);
+            tileDiv.textContent = tile.value;
+            tile.element = tileDiv;
+            playerHandDiv.appendChild(tileDiv);
+
+            tileDiv.addEventListener('click', () => {
+                selectedTile = tile;
+                Array.from(document.querySelectorAll('.tile')).forEach(el => el.classList.remove('selected'));
+                tileDiv.classList.add('selected');
+
+                if (tile.isWildcard) {
+                    // For now, wildcards are just numbers (0-9)
+                    let newValue = Math.floor(Math.random() * 10);
+                    tile.value = newValue;
+                    tile.element.textContent = newValue;
+                    tile.isWildcard = false;
+                }
+            });
+        }
+
+        // Update UI Functions 
+        function updateGameBoardDisplay() {
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    let cell = document.getElementById(`cell-<span class="math-inline">\{i\}\-</span>{j}`);
+                    let tile = gameBoard[i][j];
+                    if (tile) {
+                        cell.textContent = tile.value;
+                        cell.classList.add(tile.type);
+                    } else {
+                        cell.textContent = '';
+                        cell.classList.remove('number', 'operator', 'wildcard');
+                    }
+                }
+            }
+        }
+
+        function updatePlayerHandDisplay() {
+            playerHandDiv.innerHTML = ''; // Clear the hand
+            playerHand.forEach(createTileUI);
+        }
+
+        function updateScoreDisplay() {
+            scoreDisplay.textContent = "Score: " + score;
+        }
+
+        // Generate Tiles
+        function generateTiles() {
+            let tiles = [];
+            for (let i = 0; i < 10; i++) {
+                for (let j = 0; j < 2; j++) { // 2 of each number
+                    tiles.push(new Tile(i, 'number'));
+                }
+            }
+            for (let op of operators) {
+                for (let j = 0; j < 2; j++) { // 2 of each operator
+                    tiles.push(new Tile(op, 'operator'));
+                }
+            }
+            let numWildcards = Math.floor(tiles.length * wildcardRatio);
+            for (let i = 0; i < numWildcards; i++) {
+                tiles.push(new Tile('?', 'wildcard'));
+            }
+            return shuffle(tiles); 
+        }
+
+        // Shuffle function (Fisher-Yates algorithm)
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // Draw Tiles for Player's Hand
+        function drawTiles() {
+            while (playerHand.length < numTilesInHand) {
+                if (generateTiles().length === 0) {
+                    endGame(); // No more tiles to draw, game over
+                    return;
+                }
+                playerHand.push(generateTiles().pop()); // Get a random tile
+            }
+
+            updatePlayerHandDisplay();
+        }
+
+        // Handle Tile Placement
+        function handleCellClick(row, col) {
+            if (selectedTile && !gameOver) {
+                if (isValidPlacement(selectedTile, row, col)) {
+                    placeTile(selectedTile, row, col);
+                } else {
+                    // Invalid move: Display error message briefly
+                    errorMessage.textContent = "Invalid placement!";
+                    setTimeout(() => errorMessage.textContent = "", 1500);
+                }
+            }
+        }
+        function placeTile(tile, row, col) {
+            gameBoard[row][col] = tile;
+            const index = playerHand.indexOf(tile);
+            playerHand.splice(index, 1);
+            
+            // Check if the game is over due to running out of tiles OR no more valid moves left
+            if (playerHand.length === 0 || isBoardFull() && !areValidMovesLeft()) {
+                endGame();
+            } else { 
+                // Calculate Score
+                score += calculateScore();
+                // Update UI
+                updateGameBoardDisplay();
+                updatePlayerHandDisplay();
+                updateScoreDisplay();
+                drawTiles(); 
+            }
+        }
+        
+        // Check if there are valid moves left
+        function areValidMovesLeft() {
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    if (!gameBoard[i][j]) {
+                        for (let tile of playerHand) {
+                            if (isValidPlacement(tile, i, j)) {
+                                return true; // At least one valid move exists
+                            }
+                        }
+                    }
+                }
+            }
+            return false; // No valid moves left
+        }
+
+        // Equation Validation (Simplified)
+        function isValidPlacement(tile, row, col) {
+            if (gameBoard[row][col]) return false; // Cell occupied
+            let adjTiles = getAdjacentTiles(row, col);
+            return adjTiles.some(adjTile => {
+                // Check if placing the tile would create a valid equation
+                let equation = `${adjTile?.value || ''} ${tile.value}`; 
+                if (tile.type === 'operator' || adjTile?.type === 'operator') {
+                    return isValidEquation(equation); // Basic check for now
+                }
+                return false; // Can't place number next to
